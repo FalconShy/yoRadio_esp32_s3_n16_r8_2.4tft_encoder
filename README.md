@@ -29,18 +29,18 @@ This repository contains my modified version of the open-source yoRadio project,
 ## 🔌 Wiring & Pinout
 
 2.4 TFT
-	KO - GPIO 8
-	PUSH - GPIO 17
-	B - GPIO 16
-	A - GPIO 15
-	BLK - GPIO 14
-	CS - GPIO 10
-	DC - GPIO 9
-	RES - GPIO 38
-	SDA -  GPIO 11
-	SCL - GPIO 12
-	VCC - 3V3
-	GND - GND
+	-KO - GPIO 8
+	-PUSH - GPIO 17
+	-B - GPIO 16
+	-A - GPIO 15
+	-BLK - GPIO 14
+	-CS - GPIO 10
+	-DC - GPIO 9
+	-RES - GPIO 38
+	-SDA -  GPIO 11
+	-SCL - GPIO 12
+	-VCC - 3V3
+	-GND - GND
 	
 	
 PCM5102
