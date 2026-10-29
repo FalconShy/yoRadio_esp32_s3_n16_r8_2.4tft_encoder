@@ -130,7 +130,7 @@ Install the [ESP32 Filesystem Uploader](https://randomnerdtutorials.com/install-
 
 ![Original yoRadio project - e2002 - settings of IDE](https://github.com/e2002/yoradio/raw/main/images/board4.jpg)
 
-*Image source: [e2002/yoradio](https://github.com/e2002/yoradio). Example from the original project, not this custom hardware build.*
+*Image source: [e2002/yoradio](https://github.com/e2002/yoradio). Example from the original project(settings of IDE)*
 In Arduino IDE:
 
 1. Connect the ESP32-S3 to your computer.
