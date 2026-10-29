@@ -1,114 +1,196 @@
 # 📻 yoRadio ESP32-S3 N16R8 | 2.4" ST7789 TFT
 
-**Custom yoRadio firmware | Version 2026.31.03 - English Version**
+**Custom yoRadio Firmware | Version 2026.31.03 | English Edition**
 
-This repository contains my modified version of the open-source yoRadio project, adapted for the **ESP32-S3 N16R8** with a **2.4-inch ST7789 TFT display**, rotary encoder and dedicated sleep button.
+A customized version of the open-source [yoRadio project by e2002](https://github.com/e2002/yoradio), designed for the **ESP32-S3 N16R8** microcontroller with a **2.4-inch ST7789 TFT display**, rotary encoder, dedicated sleep button, and PCM5102 I2S DAC.
 
-## 🔧 What's improved?
+This version includes improvements to the user interface, hardware configuration, daylight saving time handling, and button functionality.
 
-- Fixed automatic daylight saving time (DST) switching between summer and winter time.
-- Fixed sleep button functionality for reliable operation.
-- Customized the user interface and color scheme.
-- Adapted the configuration for a 2.4" ST7789 TFT display.
-- Integrated rotary encoder controls.
+---
 
-## ⚙️ Hardware
+## ✨ Features & Improvements
 
-- ESP32-S3 N16R8 (16 MB Flash / 8 MB PSRAM)
-- 2.4" TFT display (ST7789)
-- Rotary encoder
-- Dedicated sleep button
-- 2.4 GHz Wi-Fi connectivity
+- **Automatic Daylight Saving Time (DST)** - Fixed switching between summer and winter time.
+- **Sleep Button** - Improved sleep button functionality for reliable operation.
+- **Customized UI** - Modified interface layout and color scheme.
+- **TFT Display Support** - Optimized configuration for the 2.4" ST7789 display.
+- **Rotary Encoder** - Integrated controls for navigation and volume adjustment.
+- **Wi-Fi Connectivity** - Supports 2.4 GHz wireless networks.
+- **Web Interface** - Configure radio stations and control the device through a web browser.
 
-## 📸 Project Gallery
+## ⚙️ Hardware Requirements
 
-**[Insert photo of the completed radio]**
-
-**[Insert screenshot of the TFT interface]**
+| Component | Specification |
+|---|---|
+| Microcontroller | ESP32-S3 N16R8 |
+| Flash Memory | 16 MB |
+| PSRAM | 8 MB |
+| Display | 2.4" ST7789 TFT (SPI) |
+| Audio DAC | PCM5102 (I2S) |
+| Controls | Rotary encoder with push button |
+| Sleep Control | Dedicated push button |
+| Connectivity | Wi-Fi 2.4 GHz |
+| Power Supply | USB-C (ESP32 board) |
 
 ## 🔌 Wiring & Pinout
 
-2.4 TFT
-	-KO - GPIO 8
-	-PUSH - GPIO 17
-	-B - GPIO 16
-	-A - GPIO 15
-	-BLK - GPIO 14
-	-CS - GPIO 10
-	-DC - GPIO 9
-	-RES - GPIO 38
-	-SDA -  GPIO 11
-	-SCL - GPIO 12
-	-VCC - 3V3
-	-GND - GND
-	
-	
-PCM5102
-	VIN - 3V3
-	GND - GND
-	LRCK - GPIO 6
-	DIN - GPIO 5
-	BCK - GPIO 4
-	
+The following pin configuration is used in this custom firmware.
 
-Pin assignments and connection details will be documented here.
+### TFT Display - ST7789 (2.4")
+
+| TFT Pin | ESP32-S3 Pin | Function |
+|---|---|---|
+| VCC | 3V3 | Power Supply |
+| GND | GND | Ground |
+| SCL | GPIO 12 | SPI Clock (SCK) |
+| SDA | GPIO 11 | SPI Data (MOSI) |
+| RES | GPIO 38 | Display Reset |
+| DC | GPIO 9 | Data / Command |
+| CS | GPIO 10 | Chip Select |
+| BLK | GPIO 14 | Backlight Control |
+
+### Rotary Encoder
+
+| Encoder Pin | ESP32-S3 Pin | Function |
+|---|---|---|
+| A | GPIO 15 | Encoder Channel A |
+| B | GPIO 16 | Encoder Channel B |
+| PUSH | GPIO 17 | Encoder Push Button |
+
+### Sleep Button
+
+| Button Pin | ESP32-S3 Pin | Function |
+|---|---|---|
+| KO | GPIO 8 | Sleep Control |
+
+### Audio DAC - PCM5102 (I2S)
+
+| PCM5102 Pin | ESP32-S3 Pin | Function |
+|---|---|---|
+| VIN | 3V3 | Power Supply |
+| GND | GND | Ground |
+| BCK | GPIO 4 | I2S Bit Clock |
+| DIN | GPIO 5 | I2S Audio Data |
+| LRCK | GPIO 6 | I2S Word Select |
+
+**Note:** The wiring tables describe this specific hardware configuration. Other ESP32 boards or display modules may require different pin assignments.
+
+---
 
 ## 🚀 Installation
 
-Download the repository, configure the firmware for your hardware, and upload it to your ESP32-S3 board.
-you require extra libraries
-Requirements
+### 1. Software Requirements
 
-Arduino IDE 1.8.19 (Arduino IDE 2.x is not officially supported)
+Before compiling the firmware, install the following software:
 
-ESP32 Boards package version 2.0.0 or newer
+| Software | Version / Requirement |
+|---|---|
+| Arduino IDE | **1.8.19 (Legacy)** |
+| ESP32 Boards Package | 2.0.0 or newer, compatible with the firmware |
+| ESP32 Filesystem Uploader | Required for the Arduino IDE filesystem upload method |
+| USB Driver | Depending on your ESP32-S3 board |
 
-ESP32 Filesystem Uploader
+**Important:** Arduino IDE 1.8.19 is recommended according to the original yoRadio documentation. Arduino IDE 2.x is not officially supported by the original installation instructions.
 
-Required Arduino libraries (depending on the hardware configuration)
+### 2. Required Arduino Libraries
 
-Required Libraries
+Install the following libraries using **Arduino IDE → Sketch → Include Library → Manage Libraries**.
 
-Install the required libraries using the Arduino IDE Library Manager:
+| Library | Purpose |
+|---|---|
+| [Adafruit GFX Library](https://github.com/adafruit/Adafruit-GFX-Library) | Graphics and text rendering |
+| [Adafruit ST7735 and ST7789 Library](https://github.com/adafruit/Adafruit-ST7735-Library) | TFT display driver |
+| [OneButton](https://github.com/mathertel/OneButton) | Button handling, if not already bundled |
 
-Adafruit GFX Library
+Some dependencies are already included in newer versions of yoRadio. Additional libraries may be required depending on the enabled hardware and firmware features.
 
-Adafruit ST7735 and ST7789 Library
+See the [original yoRadio dependencies](https://github.com/e2002/yoradio#dependencies) for more information.
 
-OneButton
+### 3. Download the Firmware
 
-Additional libraries may be required depending on the enabled features.
+Download this repository using **Code → Download ZIP**, or clone it using Git.
 
-Setup Instructions
+Extract the downloaded files to a local directory.
 
-Install Arduino IDE 1.8.19.
+### 4. Configure the Firmware
 
-Install the ESP32 Boards package.
+1. Open `yoRadio.ino` in Arduino IDE.
+2. Select your ESP32-S3 board in **Tools → Board**.
+3. Open `myoptions.h`.
+4. Verify the display, encoder, DAC, and button pin configuration.
+5. Configure the required hardware settings.
 
-Install the required libraries.
+**Important:** Modify `myoptions.h` rather than editing the original `options.h` file.
 
-Install the ESP32 Filesystem Uploader.
+If the display requires the custom yoRadio font symbols, follow the original instructions for replacing `Adafruit_GFX_Library/glcdfont.c` with `yoRadio/fonts/glcdfont.c`.
 
-Open yoRadio.ino in Arduino IDE.
+### 5. Upload Filesystem Data
 
-Configure myoptions.h for your hardware.
+Install the [ESP32 Filesystem Uploader](https://randomnerdtutorials.com/install-esp32-filesystem-uploader-arduino-ide/) if you are using the legacy Arduino IDE upload method.
 
-Upload the filesystem data using Tools > ESP32 Sketch Data Upload.
+In Arduino IDE:
 
-Compile and upload the firmware to your ESP32-S3.
+1. Connect the ESP32-S3 to your computer.
+2. Select the correct COM port.
+3. Select **Tools → ESP32 Sketch Data Upload**.
+4. Upload the filesystem data to the board.
 
-For complete installation instructions and additional dependencies, refer to the original project:
+**Note:** Newer upstream yoRadio versions also provide a Web Board Uploader, which can be used instead of the legacy filesystem upload tool.
 
-Original yoRadio repository
+### 6. Upload the Firmware
 
-Official installation guide
+1. Verify the ESP32-S3 board settings.
+2. Compile the project.
+3. Select **Sketch → Upload**.
+4. After uploading, restart the ESP32-S3.
 
-Original dependencies
+### 7. First Startup & Wi-Fi Configuration
+
+By default, the original yoRadio firmware creates a wireless access point if no Wi-Fi network has been configured.
+
+- **Wi-Fi SSID:** `yoRadioAP`
+- **Default Password:** `12345987`
+- **Configuration Address:** `http://192.168.4.1`
+
+Connect to the access point and configure your home Wi-Fi network.
+
+After connecting to your network, open the radio's local IP address in a web browser to access the yoRadio interface and configure radio stations.
+
+For additional information, refer to the [official yoRadio installation guide](https://github.com/e2002/yoradio/wiki/How-to-flash).
+
+---
+
+## 📸 Project Gallery
+
+Photos of this custom ESP32-S3 build and its TFT interface will be added here.
+
+For examples of the original project, visit the [official yoRadio image gallery](https://github.com/e2002/yoradio/blob/main/Images.md).
+
+## 🔗 Useful Links
+
+- [Original yoRadio Repository](https://github.com/e2002/yoradio)
+- [Official yoRadio Wiki](https://github.com/e2002/yoradio/wiki)
+- [yoRadio Installation Guide](https://github.com/e2002/yoradio/wiki/How-to-flash)
+- [yoRadio Hardware Configuration Generator](https://e2002.github.io/docs/myoptions-generator.html)
+- [Arduino IDE 1.8.19](https://www.arduino.cc/en/software)
+- [ESP32 Arduino Core](https://github.com/espressif/arduino-esp32)
+
+---
 
 ## 📜 Credits & License
 
-Based on the original [yoRadio project by e2002](https://github.com/e2002/yoradio).
+This project is based on the original **[yoRadio by e2002](https://github.com/e2002/yoradio)**.
 
-This is an independent, modified version shared with the open-source community.
+Special thanks to **e2002** and all contributors to the original yoRadio project for developing and maintaining the open-source firmware.
 
-The original project is licensed under GPL-3.0.
+This repository contains an unofficial, modified version adapted for a specific ESP32-S3 hardware configuration.
+
+The original yoRadio project is licensed under the **GNU General Public License v3.0 (GPL-3.0)**.
+
+This modified firmware is distributed under the same GPL-3.0 license. Copyright notices and license conditions from the original project must be preserved.
+
+For full license details, see the [original yoRadio license](https://github.com/e2002/yoradio/blob/main/LICENSE).
+
+---
+
+**Based on yoRadio • Customized for ESP32-S3 N16R8 • Version 2026.31.03**
