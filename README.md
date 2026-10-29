@@ -5,7 +5,7 @@
 A customized version of the open-source [yoRadio project by e2002](https://github.com/e2002/yoradio), designed for the **ESP32-S3 N16R8** microcontroller with a **2.4-inch ST7789 TFT display**, rotary encoder, dedicated sleep button, and PCM5102 I2S DAC.
 
 This version includes improvements to the user interface, hardware configuration, daylight saving time handling, and button functionality.
-
+![Foto in case](https://github.com/FalconShy/yoRadio_esp32_s3_n16_r8_2.4tft_encoder/edit/main/foto1.jpg)
 ---
 
 ## ✨ Features & Improvements
@@ -129,6 +129,7 @@ If the display requires the custom yoRadio font symbols, follow the original ins
 Install the [ESP32 Filesystem Uploader](https://randomnerdtutorials.com/install-esp32-filesystem-uploader-arduino-ide/) if you are using the legacy Arduino IDE upload method.
 
 ![Original yoRadio project - e2002 - settings of IDE](https://github.com/e2002/yoradio/raw/main/images/board4.jpg)
+
 
 *Image source: [e2002/yoradio](https://github.com/e2002/yoradio). Example from the original project(settings of IDE)*
 In Arduino IDE:
