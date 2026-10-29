@@ -128,6 +128,9 @@ If the display requires the custom yoRadio font symbols, follow the original ins
 
 Install the [ESP32 Filesystem Uploader](https://randomnerdtutorials.com/install-esp32-filesystem-uploader-arduino-ide/) if you are using the legacy Arduino IDE upload method.
 
+![Original yoRadio project - e2002](https://raw.githubusercontent.com/e2002/yoradio/main/images/page1.jpg)
+
+*Image source: [e2002/yoradio](https://github.com/e2002/yoradio). Example from the original project, not this custom hardware build.*
 In Arduino IDE:
 
 1. Connect the ESP32-S3 to your computer.
