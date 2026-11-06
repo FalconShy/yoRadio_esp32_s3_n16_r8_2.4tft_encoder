@@ -1,5 +1,8 @@
 #include "netserver.h"
 #include <SPIFFS.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #include "config.h"
 #include "player.h"
@@ -29,7 +32,6 @@ AsyncWebServer webserver(80);
 AsyncWebSocket websocket("/ws");
 AsyncUDP udp;
 
-String processor(const String& var);
 void handleUpload(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final);
 void handleUploadWeb(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final);
 void handleUpdate(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final);
@@ -102,6 +104,16 @@ bool NetServer::begin(bool quiet) {
     request->send(200, "text/html", varjsbuf); 
   });
 
+  webserver.on("/script.js", HTTP_GET, [](AsyncWebServerRequest *request) {
+    File script = SPIFFS.open("/www/script.js.gz", "r");
+    if (script) {
+      auto *response = request->beginResponse(script, "/script.js", "application/javascript");
+      response->addHeader("Cache-Control", "no-cache");
+      request->send(response);
+    } else {
+      request->send(SPIFFS, "/www/script.js", "application/javascript");
+    }
+  });
   webserver.serveStatic("/", SPIFFS, "/www/").setCacheControl("max-age=31536000");
 #ifdef CORS_DEBUG
   DefaultHeaders::Instance().addHeader(F("Access-Control-Allow-Origin"), F("*"));
@@ -158,52 +170,71 @@ void handleUpdate(AsyncWebServerRequest *request, String filename, size_t index,
   }
 }
 
+static constexpr char playlistUploadPath[] = "/data/plupload.tmp";
+static constexpr char playlistConvertedPath[] = "/data/plconvert.tmp";
+static AsyncWebServerRequest *playlistUpload = nullptr;
+static int playlistUploadFd = -1;
+static bool playlistUploadComplete = false;
+static size_t playlistUploadBytes = 0;
+static const char *playlistUploadError = nullptr;
+static int playlistUploadErrno = 0;
+static uint8_t *playlistRollback = nullptr;
+static size_t playlistRollbackSize = 0;
+
+static bool releasePlaylistUpload(bool saved = false) {
+  if (playlistUploadFd >= 0) {
+    close(playlistUploadFd);
+    playlistUploadFd = -1;
+  }
+  SPIFFS.remove(playlistUploadPath);
+  bool restored = true;
+  if (!saved && playlistRollback) {
+    const String path = String(SPIFFS.mountpoint()) + PLAYLIST_PATH;
+    const int fd = open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    restored = fd >= 0;
+    if (restored) {
+      restored = write(fd, playlistRollback, playlistRollbackSize) == static_cast<ssize_t>(playlistRollbackSize) && fsync(fd) == 0;
+      if (close(fd) < 0) restored = false;
+    }
+    if (restored) restored = config.indexPlaylist();
+    if (!restored) Serial.println("[PLAYLIST] Could not restore the previous playlist.");
+  }
+  free(playlistRollback);
+  playlistRollback = nullptr;
+  playlistUpload = nullptr;
+  return restored;
+}
+
 void NetServer::beginUpload(AsyncWebServerRequest *request) {
-  if (request->hasParam("plfile", true, true)) {
-    netserver.importRequest = IMPL;
-    request->send(200);
+  if (const auto *part = request->getParam("plfile", true, true)) {
+    if (playlistUpload != request) {
+      request->send(409);
+      return;
+    }
+    String error;
+    int status = 507;
+    if (playlistUploadError) {
+      error = playlistUploadError;
+      if (playlistUploadErrno) error += " (" + String(strerror(playlistUploadErrno)) + ")";
+      if (config.getMode() == PM_SDCARD) status = 422;
+    } else if (playlistUploadComplete && playlistUploadBytes == part->size()) {
+      status = netserver.importPlaylist(playlistUploadBytes, error);
+    } else {
+      error = "Incomplete playlist upload: received " + String(playlistUploadBytes) +
+              " of " + String(part->size()) + " bytes.";
+    }
+    if (status == 507) {
+      error += " SPIFFS used " + String(SPIFFS.usedBytes()) + " of " + String(SPIFFS.totalBytes()) + " bytes.";
+    }
+    if (!releasePlaylistUpload(status == 200)) error += " Could not restore the previous playlist.";
+    if (status != 200) Serial.printf("[PLAYLIST] %d: %s\n", status, error.c_str());
+    request->send(status, "text/plain", error);
   } else if (request->hasParam("wifile", true, true)) {
     netserver.importRequest = IMWIFI;
     request->send(200);
   } else {
     request->send(404);
   }
-}
-
-size_t NetServer::chunkedHtmlPageCallback(uint8_t* buffer, size_t maxLen, size_t index){
-  File requiredfile;
-  bool sdpl = strcmp(netserver.chunkedPathBuffer, PLAYLIST_SD_PATH) == 0;
-  if(sdpl){
-    requiredfile = config.SDPLFS()->open(netserver.chunkedPathBuffer, "r");
-  }else{
-    requiredfile = SPIFFS.open(netserver.chunkedPathBuffer, "r");
-  }
-  if (!requiredfile) return 0;
-  size_t filesize = requiredfile.size();
-  size_t needread = filesize - index;
-  if (!needread) {
-    requiredfile.close();
-    return 0;
-  }
-  size_t canread = (needread > maxLen) ? maxLen : needread;
-  DBGVB("[%s] seek to %d in %s and read %d bytes with maxLen=%d", __func__, index, netserver.chunkedPathBuffer, canread, maxLen);
-  requiredfile.seek(index, SeekSet);
-  //vTaskDelay(1);
-  requiredfile.read(buffer, canread);
-  index += canread;
-  if (requiredfile) requiredfile.close();
-  return canread;
-}
-
-void NetServer::chunkedHtmlPage(const String& contentType, AsyncWebServerRequest *request, const char * path, bool doproc) {
-  memset(chunkedPathBuffer, 0, sizeof(chunkedPathBuffer));
-  strlcpy(chunkedPathBuffer, path, sizeof(chunkedPathBuffer)-1);
-  AsyncWebServerResponse *response;
-  if(doproc)
-    response = request->beginChunkedResponse(contentType, chunkedHtmlPageCallback, processor);
-  else
-    response = request->beginChunkedResponse(contentType, chunkedHtmlPageCallback);
-  request->send(response);
 }
 
 #ifndef DSP_NOT_FLIPPED
@@ -386,7 +417,6 @@ void NetServer::loop() {
   }
   websocket.cleanupClients();
   switch (importRequest) {
-    case IMPL:    importPlaylist();  importRequest = IMDONE; break;
     case IMWIFI:  config.saveWifi(); importRequest = IMDONE; break;
     default:      break;
   }
@@ -799,49 +829,106 @@ void NetServer::getPlaylist(uint8_t clientId) {
 
 int NetServer::_readPlaylistLine(File &file, char * line, size_t size){
   int bytesRead = file.readBytesUntil('\n', line, size);
+  line[bytesRead] = 0;
   if(bytesRead>0){
-    line[bytesRead] = 0;
     if(line[bytesRead-1]=='\r') line[bytesRead-1]=0;
   }
   return bytesRead;
 }
 
-bool NetServer::importPlaylist() {
-  if(config.getMode()==PM_SDCARD) return false;
-  File tempfile = SPIFFS.open(TMP_PATH, "r");
+int NetServer::importPlaylist(size_t expectedSize, String &error) {
+  if (config.getMode() == PM_SDCARD) {
+    error = "Switch from SD card to Web Radio mode before saving stations.";
+    return 422;
+  }
+  File tempfile = SPIFFS.open(playlistUploadPath, "r");
   if (!tempfile) {
-    return false;
+    error = "Could not reopen the uploaded playlist in SPIFFS.";
+    return 507;
   }
-  char sName[BUFLEN], sUrl[BUFLEN], linePl[BUFLEN*3];;
+  if (tempfile.size() != expectedSize) {
+    error = "SPIFFS stored " + String(tempfile.size()) + " of " + String(expectedSize) + " playlist bytes.";
+    return 507;
+  }
+  char sName[BUFLEN], sUrl[BUFLEN], linePl[BUFLEN*3];
   int sOvol;
-  _readPlaylistLine(tempfile, linePl, sizeof(linePl)-1);
-  if (config.parseCSV(linePl, sName, sUrl, sOvol)) {
-    tempfile.close();
-    SPIFFS.rename(TMP_PATH, PLAYLIST_PATH);
-    requestOnChange(PLAYLISTSAVED, 0);
-    return true;
+  const char *replacement = playlistUploadPath;
+  const int firstLength = _readPlaylistLine(tempfile, linePl, sizeof(linePl)-1);
+  if (firstLength >= sizeof(linePl)-1) {
+    error = "Playlist line 1 is too long.";
+    return 422;
   }
-  if (config.parseJSON(linePl, sName, sUrl, sOvol)) {
-    File playlistfile = SPIFFS.open(PLAYLIST_PATH, "w");
-    snprintf(linePl, sizeof(linePl)-1, "%s\t%s\t%d", sName, sUrl, 0);
-    playlistfile.println(linePl);
+  if (config.parseCSV(linePl, sName, sUrl, sOvol)) {
+    unsigned int row = 1;
     while (tempfile.available()) {
-      _readPlaylistLine(tempfile, linePl, sizeof(linePl)-1);
-      if (config.parseJSON(linePl, sName, sUrl, sOvol)) {
-        snprintf(linePl, sizeof(linePl)-1, "%s\t%s\t%d", sName, sUrl, 0);
-        playlistfile.println(linePl);
+      ++row;
+      int length = _readPlaylistLine(tempfile, linePl, sizeof(linePl)-1);
+      if (length >= sizeof(linePl)-1 || (length && *linePl && !config.parseCSV(linePl, sName, sUrl, sOvol))) {
+        error = "Invalid playlist line " + String(row) + ". Expected name, URL and volume separated by tabs.";
+        return 422;
       }
     }
-    playlistfile.flush();
-    playlistfile.close();
-    tempfile.close();
-    SPIFFS.remove(TMP_PATH);
-    requestOnChange(PLAYLISTSAVED, 0);
-    return true;
+  } else if (config.parseJSON(linePl, sName, sUrl, sOvol)) {
+    File converted = SPIFFS.open(playlistConvertedPath, "w");
+    if (!converted) {
+      error = "Could not create a converted playlist in SPIFFS.";
+      return 507;
+    }
+    bool complete = true;
+    bool nextStation;
+    size_t expectedSize = 0;
+    do {
+      int length = snprintf(linePl, sizeof(linePl), "%s\t%s\t0\n", sName, sUrl);
+      if (length < 0 || length >= sizeof(linePl) || converted.write((const uint8_t *)linePl, length) != length) {
+        complete = false;
+        break;
+      }
+      expectedSize += length;
+      nextStation = false;
+      while (tempfile.available()) {
+        int read = _readPlaylistLine(tempfile, linePl, sizeof(linePl)-1);
+        if (read >= sizeof(linePl)-1) complete = false;
+        if (!complete) break;
+        if (read && config.parseJSON(linePl, sName, sUrl, sOvol)) {
+          nextStation = true;
+          break;
+        }
+      }
+    } while (nextStation);
+    converted.flush();
+    complete = complete && converted.size() == expectedSize;
+    converted.close();
+    if (!complete) {
+      SPIFFS.remove(playlistConvertedPath);
+      error = "Could not finish converting the playlist. Check the file and SPIFFS space.";
+      return 507;
+    }
+    replacement = playlistConvertedPath;
+  } else {
+    error = "Invalid playlist line 1. Expected name, URL and volume separated by tabs, or a legacy JSON record.";
+    return 422;
   }
   tempfile.close();
-  SPIFFS.remove(TMP_PATH);
-  return false;
+  const bool hadPlaylist = SPIFFS.exists(PLAYLIST_PATH);
+  // Keep the previous playlist until the replacement and its index are usable.
+  const bool backedUp = !hadPlaylist ||
+    ((!SPIFFS.exists(PLAYLIST_BACKUP) || SPIFFS.remove(PLAYLIST_BACKUP)) &&
+     SPIFFS.rename(PLAYLIST_PATH, PLAYLIST_BACKUP));
+  if (!backedUp || !SPIFFS.rename(replacement, PLAYLIST_PATH)) {
+    if (backedUp && hadPlaylist) SPIFFS.rename(PLAYLIST_BACKUP, PLAYLIST_PATH);
+    if (replacement == playlistConvertedPath) SPIFFS.remove(playlistConvertedPath);
+    error = backedUp ? "SPIFFS could not move the uploaded file into place." : "SPIFFS could not back up the current playlist.";
+    return 507;
+  }
+  if (!config.indexPlaylist()) {
+    SPIFFS.remove(PLAYLIST_PATH);
+    if (hadPlaylist && SPIFFS.rename(PLAYLIST_BACKUP, PLAYLIST_PATH)) config.indexPlaylist();
+    error = "SPIFFS could not write the station index. Check free space.";
+    return 507;
+  }
+  if (SPIFFS.exists(PLAYLIST_BACKUP)) SPIFFS.remove(PLAYLIST_BACKUP);
+  requestOnChange(PLAYLIST, 0);
+  return 200;
 }
 
 void NetServer::requestOnChange(requestType_e request, uint8_t clientId) {
@@ -856,32 +943,81 @@ void NetServer::resetQueue(){
   if(nsQueue!=NULL) xQueueReset(nsQueue);
 }
 
-String processor(const String& var) { // %Templates%
-  if (var == "ACTION") return (network.status == CONNECTED && !config.emptyFS)?"webboard":"";
-  if (var == "UPLOADWIFI") return (network.status == CONNECTED)?" hidden":"";
-  if (var == "VERSION") return YOVERSION;
-  return String();
-}
-
-int freeSpace;
 void handleUpload(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
-  if (!index) {
-    if(filename!="tempwifi.csv"){
-      if(SPIFFS.exists(PLAYLIST_PATH)) SPIFFS.remove(PLAYLIST_PATH);
-      if(SPIFFS.exists(INDEX_PATH)) SPIFFS.remove(INDEX_PATH);
-      if(SPIFFS.exists(PLAYLIST_SD_PATH)) SPIFFS.remove(PLAYLIST_SD_PATH);
-      if(SPIFFS.exists(INDEX_SD_PATH)) SPIFFS.remove(INDEX_SD_PATH);
-    }
-    freeSpace = (float)SPIFFS.totalBytes()/100*68-SPIFFS.usedBytes();
-    request->_tempFile = SPIFFS.open(TMP_PATH , "w");
+  if (filename == "tempwifi.csv") {
+    if (!index) request->_tempFile = SPIFFS.open(TMP_PATH, "w");
+    if (len && request->_tempFile) request->_tempFile.write(data, len);
+    if (final) request->_tempFile.close();
+    return;
   }
-  if (len) {
-    if(freeSpace>index+len){
-      request->_tempFile.write(data, len);
+  if (!index && !playlistUpload) {
+    playlistUpload = request;
+    playlistUploadComplete = false;
+    playlistUploadBytes = 0;
+    playlistUploadError = nullptr;
+    playlistUploadErrno = 0;
+    request->onDisconnect([request]() {
+      if (playlistUpload == request) releasePlaylistUpload();
+    });
+    if (config.getMode() == PM_SDCARD) {
+      playlistUploadError = "Switch from SD card to Web Radio mode before saving stations.";
+      return;
+    }
+    if (!len || memchr(data, '\0', len)) {
+      playlistUploadError = "Playlist must contain UTF-8 text.";
+      return;
+    }
+    // Bypass File's stdio buffer so that flash write failures are visible here.
+    const String path = String(SPIFFS.mountpoint()) + playlistUploadPath;
+    playlistUploadFd = open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    if (playlistUploadFd < 0) {
+      playlistUploadErrno = errno;
+      playlistUploadError = "SPIFFS could not create the temporary playlist file.";
+      return;
+    }
+    // Reclaim flash as in the pre-30_03 version, with a RAM copy for rollback.
+    if (SPIFFS.exists(PLAYLIST_PATH)) {
+      File previous = SPIFFS.open(PLAYLIST_PATH, "r");
+      const size_t size = previous ? previous.size() : 0;
+      uint8_t *backup = size ? static_cast<uint8_t *>(psramFound() ? ps_malloc(size) : malloc(size)) : nullptr;
+      const bool copied = previous && (!size || (backup && previous.read(backup, size) == size));
+      previous.close();
+      if (!copied || !SPIFFS.remove(PLAYLIST_PATH)) {
+        free(backup);
+        playlistUploadError = "Could not safely release the old playlist's SPIFFS space.";
+        close(playlistUploadFd);
+        playlistUploadFd = -1;
+        return;
+      }
+      playlistRollback = backup;
+      playlistRollbackSize = size;
+    }
+    if (SPIFFS.exists(INDEX_PATH)) SPIFFS.remove(INDEX_PATH);
+  }
+  if (playlistUpload != request || playlistUploadFd < 0) return;
+  if (index != playlistUploadBytes) {
+    playlistUploadError = "Playlist upload chunks arrived out of order.";
+  } else if (len && memchr(data, '\0', len)) {
+    playlistUploadError = "Playlist contains a NUL byte. Save it as UTF-8 text.";
+  } else if (len) {
+    const ssize_t written = write(playlistUploadFd, data, len);
+    if (written > 0) playlistUploadBytes += written;
+    if (written < 0 || static_cast<size_t>(written) != len) {
+      if (written < 0) playlistUploadErrno = errno;
+      playlistUploadError = "SPIFFS could not write the temporary playlist.";
     }
   }
-  if (final) {
-    request->_tempFile.close();
+  if (playlistUploadError || final) {
+    if (!playlistUploadError && fsync(playlistUploadFd) < 0) {
+      playlistUploadErrno = errno;
+      playlistUploadError = "SPIFFS could not flush the temporary playlist to flash.";
+    }
+    if (close(playlistUploadFd) < 0 && !playlistUploadError) {
+      playlistUploadErrno = errno;
+      playlistUploadError = "SPIFFS could not close the temporary playlist.";
+    }
+    playlistUploadFd = -1;
+    playlistUploadComplete = final && !playlistUploadError;
   }
 }
 
@@ -924,10 +1060,16 @@ void handleHTTPArgs(AsyncWebServerRequest * request) {
 #ifdef MQTT_ROOT_TOPIC
       if (strcmp(request->url().c_str(), PLAYLIST_PATH) == 0) while (mqttplaylistblock) vTaskDelay(5);
 #endif
-      if(strcmp(request->url().c_str(), PLAYLIST_PATH) == 0 && config.getMode()==PM_SDCARD){
-         netserver.chunkedHtmlPage("application/octet-stream", request, PLAYLIST_SD_PATH, false);
-      }else{
-        netserver.chunkedHtmlPage("application/octet-stream", request, request->url().c_str(), false);
+      const bool playlist = request->url() == PLAYLIST_PATH;
+      const bool fromSD = request->url() == PLAYLIST_SD_PATH || (playlist && config.getMode() == PM_SDCARD);
+      FS &storage = fromSD ? *config.SDPLFS() : SPIFFS;
+      const String path = fromSD ? String(PLAYLIST_SD_PATH) : request->url();
+      auto *response = request->beginResponse(storage, path, "application/octet-stream");
+      if (response) {
+        response->addHeader("Cache-Control", "no-store");
+        request->send(response);
+      } else {
+        request->send(404);
       }
       return;
     }
@@ -938,7 +1080,6 @@ void handleHTTPArgs(AsyncWebServerRequest * request) {
       }else{
         request->redirect("/settings.html");
       }
-      //netserver.chunkedHtmlPage(String(), request, network.status == CONNECTED ? "/www/index.html" : "/www/settings.html", false);
       return;
     }
   }

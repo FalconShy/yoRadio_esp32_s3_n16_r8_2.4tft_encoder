@@ -502,7 +502,8 @@ void BitrateWidget::_draw(){
   dsp.setFont();
   dsp.setTextSize(_config.textsize);
   dsp.setTextColor(_fgcolor, _bgcolor);
-  if(_bitrate < 999)  snprintf(_buf, 6, "%d", _bitrate);
+  if(!_bitrate) snprintf(_buf, 6, "--");
+  else if(_bitrate < 1000) snprintf(_buf, 6, "%d", _bitrate);
   else {
     float _br = (float)_bitrate / 1000;
     snprintf(_buf, 6, "%.1f", _br);
@@ -524,6 +525,7 @@ void BitrateWidget::_draw(){
     case BF_MP3:  dsp.print("mp3"); break;
     case BF_AAC:  dsp.print("aac"); break;
     case BF_FLAC: dsp.print("flc"); break;
+    case BF_OGG:  dsp.print("ogg"); break;
     case BF_WAV:  dsp.print("wav"); break;
     
     default:                        break;

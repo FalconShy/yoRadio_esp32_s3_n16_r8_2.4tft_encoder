@@ -13,6 +13,7 @@ void audio_info(const char *info) {
   #endif
   if (strstr(info, "format is aac")  != NULL) { config.setBitrateFormat(BF_AAC); display.putRequest(DBITRATE); }
   if (strstr(info, "format is flac") != NULL) { config.setBitrateFormat(BF_FLAC); display.putRequest(DBITRATE); }
+  if (strstr(info, "format is ogg/flac") != NULL) { config.setBitrateFormat(BF_OGG); display.putRequest(DBITRATE); }
   if (strstr(info, "format is mp3")  != NULL) { config.setBitrateFormat(BF_MP3); display.putRequest(DBITRATE); }
   if (strstr(info, "format is wav")  != NULL) { config.setBitrateFormat(BF_WAV); display.putRequest(DBITRATE); }
   if (strstr(info, "skip metadata") != NULL) config.setTitle(config.station.name);
@@ -22,8 +23,8 @@ void audio_info(const char *info) {
   }
   char* ici; char b[20]={0};
   if ((ici = strstr(info, "BitRate: ")) != NULL) {
-    strlcpy(b, ici + 9, 50);
-    audio_bitrate(b);
+    strlcpy(b, ici + 9, sizeof(b));
+    if (atoi(b) > 0) audio_bitrate(b);
   }
 }
 

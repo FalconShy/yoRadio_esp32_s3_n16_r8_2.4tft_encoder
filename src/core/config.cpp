@@ -461,25 +461,41 @@ void Config::setStation(const char* station) {
   u8fix(config.station.title);
 }
 
-void Config::indexPlaylist() {
+bool Config::indexPlaylist() {
   File playlist = SPIFFS.open(PLAYLIST_PATH, "r");
-  if (!playlist) {
-    return;
-  }
+  if (!playlist) return false;
   char sName[BUFLEN], sUrl[BUFLEN];
   int sOvol;
   File index = SPIFFS.open(INDEX_PATH, "w");
+  if (!index) return false;
+  size_t expectedSize = 0;
+  bool complete = true;
   while (playlist.available()) {
     uint32_t pos = playlist.position();
     if (parseCSV(playlist.readStringUntil('\n').c_str(), sName, sUrl, sOvol)) {
-      index.write((uint8_t *) &pos, 4);
+      expectedSize += sizeof(pos);
+      if (index.write((uint8_t *) &pos, sizeof(pos)) != sizeof(pos)) {
+        complete = false;
+        break;
+      }
     }
   }
   index.close();
   playlist.close();
+  // Verify the persisted size rather than the size reported by the write handle.
+  index = SPIFFS.open(INDEX_PATH, "r");
+  complete = complete && index && index.size() == expectedSize;
+  index.close();
+  if (!complete) SPIFFS.remove(INDEX_PATH);
+  return complete;
 }
 
 void Config::initPlaylist() {
+  if (SPIFFS.exists(PLAYLIST_BACKUP)) {
+    if (!SPIFFS.exists(PLAYLIST_PATH)) SPIFFS.rename(PLAYLIST_BACKUP, PLAYLIST_PATH);
+    if (indexPlaylist() && SPIFFS.exists(PLAYLIST_BACKUP)) SPIFFS.remove(PLAYLIST_BACKUP);
+    return;
+  }
   //store.countStation = 0;
   if (!SPIFFS.exists(INDEX_PATH)) indexPlaylist();
 
@@ -610,16 +626,16 @@ bool Config::parseCSV(const char* line, char* name, char* url, int &ovol) {
   const char* cursor = line;
   char buf[5];
   tmpe = strstr(cursor, "\t");
-  if (tmpe == NULL) return false;
+  if (tmpe == NULL || tmpe - cursor >= BUFLEN) return false;
   strlcpy(name, cursor, tmpe - cursor + 1);
   if (strlen(name) == 0) return false;
   cursor = tmpe + 1;
   tmpe = strstr(cursor, "\t");
-  if (tmpe == NULL) return false;
+  if (tmpe == NULL || tmpe - cursor >= BUFLEN) return false;
   strlcpy(url, cursor, tmpe - cursor + 1);
   if (strlen(url) == 0) return false;
   cursor = tmpe + 1;
-  if (strlen(cursor) == 0) return false;
+  if (*cursor == '\0' || *cursor == '\r' || strchr(cursor, '\t')) return false;
   strlcpy(buf, cursor, 4);
   ovol = atoi(buf);
   return true;
@@ -632,43 +648,41 @@ bool Config::parseJSON(const char* line, char* name, char* url, int &ovol) {
   tmps = strstr(cursor, "\":\"");
   if (tmps == NULL) return false;
   tmpe = strstr(tmps, "\",\"");
-  if (tmpe == NULL) return false;
+  if (tmpe == NULL || tmpe < tmps + 3 || tmpe - (tmps + 3) >= BUFLEN) return false;
   strlcpy(name, tmps + 3, tmpe - tmps - 3 + 1);
   if (strlen(name) == 0) return false;
   cursor = tmpe + 3;
   tmps = strstr(cursor, "\":\"");
   if (tmps == NULL) return false;
   tmpe = strstr(tmps, "\",\"");
-  if (tmpe == NULL) return false;
+  if (tmpe == NULL || tmpe < tmps + 3 || tmpe - (tmps + 3) >= sizeof(host)) return false;
   strlcpy(host, tmps + 3, tmpe - tmps - 3 + 1);
   if (strlen(host) == 0) return false;
   if (strstr(host, "http://") == NULL && strstr(host, "https://") == NULL) {
-    sprintf(file, "http://%s", host);
+    if (snprintf(file, sizeof(file), "http://%s", host) >= sizeof(host)) return false;
     strlcpy(host, file, strlen(file) + 1);
   }
   cursor = tmpe + 3;
   tmps = strstr(cursor, "\":\"");
   if (tmps == NULL) return false;
   tmpe = strstr(tmps, "\",\"");
-  if (tmpe == NULL) return false;
+  if (tmpe == NULL || tmpe < tmps + 3 || tmpe - (tmps + 3) >= sizeof(file)) return false;
   strlcpy(file, tmps + 3, tmpe - tmps - 3 + 1);
   cursor = tmpe + 3;
   tmps = strstr(cursor, "\":\"");
   if (tmps == NULL) return false;
   tmpe = strstr(tmps, "\",\"");
-  if (tmpe == NULL) return false;
+  if (tmpe == NULL || tmpe < tmps + 3 || tmpe - (tmps + 3) >= sizeof(port)) return false;
   strlcpy(port, tmps + 3, tmpe - tmps - 3 + 1);
   int p = atoi(port);
-  if (p > 0) {
-    sprintf(url, "%s:%d%s", host, p, file);
-  } else {
-    sprintf(url, "%s%s", host, file);
-  }
+  int urlLength = p > 0 ? snprintf(url, BUFLEN, "%s:%d%s", host, p, file)
+                        : snprintf(url, BUFLEN, "%s%s", host, file);
+  if (urlLength < 0 || urlLength >= BUFLEN) return false;
   cursor = tmpe + 3;
   tmps = strstr(cursor, "\":\"");
   if (tmps == NULL) return false;
   tmpe = strstr(tmps, "\"}");
-  if (tmpe == NULL) return false;
+  if (tmpe == NULL || tmpe < tmps + 3 || tmpe - (tmps + 3) >= sizeof(port)) return false;
   strlcpy(port, tmps + 3, tmpe - tmps - 3 + 1);
   ovol = atoi(port);
   return true;

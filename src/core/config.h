@@ -18,6 +18,7 @@
   #define BUFLEN            170
 #endif
 #define PLAYLIST_PATH     "/data/playlist.csv"
+#define PLAYLIST_BACKUP   "/data/playlist.bak"
 #define SSIDS_PATH        "/data/wifi.csv"
 #define TMP_PATH          "/data/tmpfile.txt"
 #define INDEX_PATH        "/data/index.dat"
@@ -215,7 +216,7 @@ class Config {
     void setSmartStart(uint8_t ss);
     void setBitrateFormat(BitrateFormat fmt) { configFmt = fmt; }
     void initPlaylist();
-    void indexPlaylist();
+    bool indexPlaylist();
     #ifdef USE_SD
       void initSDPlaylist();
       void changeMode(int newmode=-1);
